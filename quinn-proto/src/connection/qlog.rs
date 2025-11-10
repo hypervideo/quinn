@@ -18,7 +18,7 @@ use qlog::{
 use tracing::warn;
 
 use crate::{
-    ConnectionId, Instant,
+    ConnectionId, Duration, Instant,
     connection::{PathData, SentPacket},
     packet::SpaceId,
 };
@@ -86,7 +86,7 @@ impl QlogSink {
         &self,
         pn: u64,
         info: &SentPacket,
-        lost_send_time: Instant,
+        loss_delay: Duration,
         space: SpaceId,
         now: Instant,
         orig_rem_cid: ConnectionId,
@@ -105,7 +105,7 @@ impl QlogSink {
                     ..Default::default()
                 }),
                 frames: None,
-                trigger: Some(match info.time_sent <= lost_send_time {
+                trigger: Some(match now.saturating_duration_since(info.time_sent) >= loss_delay {
                     true => PacketLostTrigger::TimeThreshold,
                     false => PacketLostTrigger::ReorderingThreshold,
                 }),
