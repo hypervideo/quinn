@@ -353,6 +353,17 @@ impl Connection {
         }
     }
 
+    /// Receive an application datagram along with the kernel software receive
+    /// timestamp of the UDP datagram it arrived in, if the socket layer
+    /// captured one. Lets a delay-based congestion controller observe accurate
+    /// inter-arrival spacing instead of userspace drain time.
+    pub fn read_datagram_with_meta(&self) -> ReadDatagramWithMeta<'_> {
+        ReadDatagramWithMeta {
+            conn: &self.0,
+            notify: self.0.shared.datagram_received.notified(),
+        }
+    }
+
     /// Wait for the connection to be closed for any reason
     ///
     /// Despite the return type's name, closed connections are often not an error condition at the
@@ -804,6 +815,40 @@ impl Future for ReadDatagram<'_> {
         // Check for buffered datagrams before checking `state.error` so that already-received
         // datagrams, which are necessarily finite, can be drained from a closed connection.
         if let Some(x) = state.inner.datagrams().recv() {
+            return Poll::Ready(Ok(x));
+        } else if let Some(ref e) = state.error {
+            return Poll::Ready(Err(e.clone()));
+        }
+        loop {
+            match this.notify.as_mut().poll(ctx) {
+                // `state` lock ensures we didn't race with readiness
+                Poll::Pending => return Poll::Pending,
+                // Spurious wakeup, get a new future
+                Poll::Ready(()) => this
+                    .notify
+                    .set(this.conn.shared.datagram_received.notified()),
+            }
+        }
+    }
+}
+
+pin_project! {
+    /// Future produced by [`Connection::read_datagram_with_meta`]
+    pub struct ReadDatagramWithMeta<'a> {
+        conn: &'a ConnectionRef,
+        #[pin]
+        notify: Notified<'a>,
+    }
+}
+
+impl Future for ReadDatagramWithMeta<'_> {
+    type Output = Result<(Bytes, Option<std::time::SystemTime>), ConnectionError>;
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+        let mut this = self.project();
+        let mut state = this.conn.state.lock("ReadDatagramWithMeta::poll");
+        // Check for buffered datagrams before checking `state.error` so that
+        // already-received datagrams can be drained from a closed connection.
+        if let Some(x) = state.inner.datagrams().recv_with_meta() {
             return Poll::Ready(Ok(x));
         } else if let Some(ref e) = state.error {
             return Poll::Ready(Err(e.clone()));

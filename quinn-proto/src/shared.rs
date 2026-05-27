@@ -24,6 +24,8 @@ pub(crate) struct DatagramConnectionEvent {
     pub(crate) ecn: Option<EcnCodepoint>,
     pub(crate) first_decode: PartialDecode,
     pub(crate) remaining: Option<BytesMut>,
+    /// Kernel software receive timestamp for this UDP datagram, if available.
+    pub(crate) rx_time: Option<std::time::SystemTime>,
 }
 
 /// Events sent from a Connection to an Endpoint

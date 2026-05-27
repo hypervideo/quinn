@@ -122,6 +122,19 @@ impl UdpSocketState {
             }
         }
 
+        // Request per-datagram kernel software receive timestamps so a
+        // delay-based congestion controller sees accurate inter-arrival spacing
+        // rather than userspace drain time. Best-effort.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if let Err(_err) = set_socket_option(&*io, libc::SOL_SOCKET, libc::SO_TIMESTAMPNS, OPTION_ON)
+        {
+            crate::log::debug!("Ignoring error setting SO_TIMESTAMPNS on socket: {_err:?}");
+        }
+        #[cfg(any(bsd, apple, solarish))]
+        if let Err(_err) = set_socket_option(&*io, libc::SOL_SOCKET, libc::SO_TIMESTAMP, OPTION_ON) {
+            crate::log::debug!("Ignoring error setting SO_TIMESTAMP on socket: {_err:?}");
+        }
+
         let mut may_fragment = false;
         #[cfg(any(target_os = "linux", target_os = "android"))]
         {
@@ -566,7 +579,9 @@ fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> 
     Ok(1)
 }
 
-const CMSG_LEN: usize = 88;
+// Sized to hold the control messages we request simultaneously: ECN, dst
+// pktinfo, GRO stride, and a software receive timestamp (timespec/timeval).
+const CMSG_LEN: usize = 176;
 
 fn prepare_msg(
     transmit: &Transmit<'_>,
@@ -704,6 +719,8 @@ fn decode_recv(
     let name = unsafe { name.assume_init() };
     let mut ecn_bits = 0;
     let mut dst_ip = None;
+    #[allow(unused_mut)] // only mutable on platforms with a timestamp cmsg
+    let mut rx_time = None;
     #[allow(unused_mut)] // only mutable on Linux
     let mut stride = len;
 
@@ -750,6 +767,20 @@ fn decode_recv(
             (libc::SOL_UDP, gro::UDP_GRO) => unsafe {
                 stride = cmsg::decode::<libc::c_int, libc::cmsghdr>(cmsg) as usize;
             },
+            // Kernel software receive timestamp (nanosecond resolution).
+            // `timespec`/`timeval` are 8-byte aligned, exceeding `cmsghdr`'s
+            // alignment, so they must be read unaligned.
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            (libc::SOL_SOCKET, libc::SCM_TIMESTAMPNS) => unsafe {
+                let ts = cmsg::decode_unaligned::<libc::timespec, libc::cmsghdr>(cmsg);
+                rx_time = system_time_from_unix(ts.tv_sec as i64, ts.tv_nsec as i64);
+            },
+            // Kernel software receive timestamp (microsecond resolution).
+            #[cfg(any(bsd, apple, solarish))]
+            (libc::SOL_SOCKET, libc::SCM_TIMESTAMP) => unsafe {
+                let tv = cmsg::decode_unaligned::<libc::timeval, libc::cmsghdr>(cmsg);
+                rx_time = system_time_from_unix(tv.tv_sec as i64, (tv.tv_usec as i64) * 1_000);
+            },
             _ => {}
         }
     }
@@ -784,7 +815,19 @@ fn decode_recv(
         addr,
         ecn: EcnCodepoint::from_bits(ecn_bits),
         dst_ip,
+        rx_time,
     }
+}
+
+/// Build a `SystemTime` from a kernel timestamp expressed as seconds + nanos
+/// since the Unix epoch. Returns `None` for negative values.
+#[cfg(any(target_os = "linux", target_os = "android", bsd, apple, solarish))]
+fn system_time_from_unix(secs: i64, nanos: i64) -> Option<std::time::SystemTime> {
+    use std::time::{Duration, SystemTime};
+    if secs < 0 || nanos < 0 {
+        return None;
+    }
+    Some(SystemTime::UNIX_EPOCH + Duration::from_secs(secs as u64) + Duration::from_nanos(nanos as u64))
 }
 
 #[cfg(not(apple_slow))]

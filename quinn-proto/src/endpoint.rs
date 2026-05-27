@@ -143,6 +143,7 @@ impl Endpoint {
         remote: SocketAddr,
         local_ip: Option<IpAddr>,
         ecn: Option<EcnCodepoint>,
+        rx_time: Option<std::time::SystemTime>,
         data: BytesMut,
         buf: &mut Vec<u8>,
     ) -> Option<DatagramEvent> {
@@ -160,6 +161,7 @@ impl Endpoint {
                 ecn,
                 first_decode,
                 remaining,
+                rx_time,
             },
             Err(PacketDecodeError::UnsupportedVersion {
                 src_cid,

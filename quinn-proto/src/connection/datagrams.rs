@@ -87,6 +87,13 @@ impl Datagrams<'_> {
         self.conn.datagrams.recv()
     }
 
+    /// Receive an unreliable, unordered datagram along with the kernel software
+    /// receive timestamp of the UDP datagram it arrived in, if one was captured
+    /// by the socket layer.
+    pub fn recv_with_meta(&mut self) -> Option<(Bytes, Option<std::time::SystemTime>)> {
+        self.conn.datagrams.recv_with_meta()
+    }
+
     /// Bytes available in the outgoing datagram buffer
     ///
     /// When greater than zero, [`send`](Self::send)ing a datagram of at most this size is
@@ -104,7 +111,7 @@ pub(super) struct DatagramState {
     /// Number of bytes of datagrams that have been received by the local transport but not
     /// delivered to the application
     pub(super) recv_buffered: usize,
-    pub(super) incoming: VecDeque<Datagram>,
+    pub(super) incoming: VecDeque<(Datagram, Option<std::time::SystemTime>)>,
     pub(super) outgoing: VecDeque<Datagram>,
     pub(super) outgoing_total: usize,
     pub(super) send_blocked: bool,
@@ -114,6 +121,7 @@ impl DatagramState {
     pub(super) fn received(
         &mut self,
         datagram: Datagram,
+        rx_time: Option<std::time::SystemTime>,
         window: &Option<usize>,
     ) -> Result<bool, TransportError> {
         let window = match window {
@@ -136,7 +144,7 @@ impl DatagramState {
         }
 
         self.recv_buffered += datagram.data.len();
-        self.incoming.push_back(datagram);
+        self.incoming.push_back((datagram, rx_time));
         Ok(was_empty)
     }
 
@@ -184,9 +192,15 @@ impl DatagramState {
     }
 
     pub(super) fn recv(&mut self) -> Option<Bytes> {
-        let x = self.incoming.pop_front()?.data;
-        self.recv_buffered -= x.len();
-        Some(x)
+        let (datagram, _rx_time) = self.incoming.pop_front()?;
+        self.recv_buffered -= datagram.data.len();
+        Some(datagram.data)
+    }
+
+    pub(super) fn recv_with_meta(&mut self) -> Option<(Bytes, Option<std::time::SystemTime>)> {
+        let (datagram, rx_time) = self.incoming.pop_front()?;
+        self.recv_buffered -= datagram.data.len();
+        Some((datagram.data, rx_time))
     }
 }
 

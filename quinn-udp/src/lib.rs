@@ -115,6 +115,15 @@ pub struct RecvMeta {
     /// Populated on platforms: Windows, Linux, Android (API level > 25),
     /// FreeBSD, OpenBSD, NetBSD, macOS, and iOS.
     pub dst_ip: Option<IpAddr>,
+    /// Kernel software receive timestamp for the datagram(s), if the socket
+    /// reported one.
+    ///
+    /// Captured via `SO_TIMESTAMPNS` (Linux/Android) or `SO_TIMESTAMP`
+    /// (Apple/BSD). Reflects when the kernel received the datagram rather than
+    /// when userspace drained it, so a delay-based congestion controller sees
+    /// accurate inter-arrival spacing. `None` if the platform/socket did not
+    /// provide a timestamp.
+    pub rx_time: Option<std::time::SystemTime>,
 }
 
 impl Default for RecvMeta {
@@ -126,6 +135,7 @@ impl Default for RecvMeta {
             stride: 0,
             ecn: None,
             dst_ip: None,
+            rx_time: None,
         }
     }
 }

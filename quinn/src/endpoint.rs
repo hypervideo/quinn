@@ -800,6 +800,7 @@ impl RecvState {
                                 meta.addr,
                                 meta.dst_ip,
                                 meta.ecn.map(proto_ecn),
+                                meta.rx_time,
                                 buf,
                                 &mut response_buffer,
                             ) {
