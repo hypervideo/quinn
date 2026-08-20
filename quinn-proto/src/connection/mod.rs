@@ -234,6 +234,8 @@ pub struct Connection {
     local_cid_state: CidState,
     /// State of the unreliable datagram extension
     datagrams: DatagramState,
+    /// Kernel receive timestamp for the UDP datagram being processed
+    incoming_datagram_rx_time: Option<std::time::SystemTime>,
     /// Connection level statistics
     stats: ConnectionStats,
     /// QUIC version used for the connection.
@@ -350,6 +352,7 @@ impl Connection {
                 config.stream_receive_window,
             ),
             datagrams: DatagramState::default(),
+            incoming_datagram_rx_time: None,
             config,
             rem_cids: CidQueue::new(rem_cid),
             rng,
@@ -1096,9 +1099,11 @@ impl Connection {
                 now,
                 remote,
                 ecn,
+                rx_time,
                 first_decode,
                 remaining,
             }) => {
+                self.incoming_datagram_rx_time = rx_time;
                 // If this packet could initiate a migration and we're a client or a server that
                 // forbids migration, drop the datagram. This could be relaxed to heuristically
                 // permit NAT-rebinding-like migration.
@@ -2939,10 +2944,11 @@ impl Connection {
                     token_store.insert(server_name, token);
                 }
                 Frame::Datagram(datagram) => {
-                    if self
-                        .datagrams
-                        .received(datagram, &self.config.datagram_receive_buffer_size)?
-                    {
+                    if self.datagrams.received(
+                        datagram,
+                        self.incoming_datagram_rx_time,
+                        &self.config.datagram_receive_buffer_size,
+                    )? {
                         self.events.push_back(Event::DatagramReceived);
                     }
                 }

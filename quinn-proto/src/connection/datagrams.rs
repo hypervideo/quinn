@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, time::SystemTime};
 
 use bytes::Bytes;
 use thiserror::Error;
@@ -88,6 +88,11 @@ impl Datagrams<'_> {
         self.conn.datagrams.recv()
     }
 
+    /// Receive an unreliable, unordered datagram with its kernel receive timestamp
+    pub fn recv_with_meta(&mut self) -> Option<(Bytes, Option<SystemTime>)> {
+        self.conn.datagrams.recv_with_meta()
+    }
+
     /// Bytes available in the outgoing datagram buffer
     ///
     /// When greater than zero, [`send`](Self::send)ing a datagram of at most this size is
@@ -103,7 +108,7 @@ impl Datagrams<'_> {
 
 #[derive(Default)]
 pub(super) struct DatagramState {
-    pub(super) incoming: DatagramBuffer,
+    pub(super) incoming: ReceivedDatagramBuffer,
     pub(super) outgoing: DatagramBuffer,
     pub(super) send_blocked: bool,
 }
@@ -112,6 +117,7 @@ impl DatagramState {
     pub(super) fn received(
         &mut self,
         datagram: Datagram,
+        rx_time: Option<SystemTime>,
         window: &Option<usize>,
     ) -> Result<bool, TransportError> {
         let window = match window {
@@ -123,7 +129,11 @@ impl DatagramState {
             Some(x) => *x,
         };
 
-        let size_with_overhead = datagram.data.len() + size_of::<Datagram>();
+        let datagram = ReceivedDatagram {
+            data: datagram.data,
+            rx_time,
+        };
+        let size_with_overhead = datagram.data.len() + size_of::<ReceivedDatagram>();
 
         if size_with_overhead > window {
             return Err(TransportError::PROTOCOL_VIOLATION("oversized datagram"));
@@ -181,8 +191,45 @@ impl DatagramState {
     }
 
     pub(super) fn recv(&mut self) -> Option<Bytes> {
-        let x = self.incoming.pop_front()?.data;
-        Some(x)
+        Some(self.incoming.pop_front()?.data)
+    }
+
+    pub(super) fn recv_with_meta(&mut self) -> Option<(Bytes, Option<SystemTime>)> {
+        let entry = self.incoming.pop_front()?;
+        Some((entry.data, entry.rx_time))
+    }
+}
+
+struct ReceivedDatagram {
+    data: Bytes,
+    rx_time: Option<SystemTime>,
+}
+
+#[derive(Default)]
+pub(super) struct ReceivedDatagramBuffer {
+    queue: VecDeque<ReceivedDatagram>,
+    payload_bytes: usize,
+}
+
+impl ReceivedDatagramBuffer {
+    fn push_back(&mut self, datagram: ReceivedDatagram) {
+        self.payload_bytes += datagram.data.len();
+        self.queue.push_back(datagram);
+    }
+
+    fn pop_front(&mut self) -> Option<ReceivedDatagram> {
+        let datagram = self.queue.pop_front()?;
+        self.payload_bytes -= datagram.data.len();
+        Some(datagram)
+    }
+
+    fn memory_used(&self) -> usize {
+        self.payload_bytes
+            .saturating_add(self.queue.len() * size_of::<ReceivedDatagram>())
+    }
+
+    pub(super) fn is_empty(&self) -> bool {
+        self.queue.is_empty()
     }
 }
 

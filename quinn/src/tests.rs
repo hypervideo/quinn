@@ -800,14 +800,14 @@ async fn two_datagram_readers() {
     let server = server.unwrap();
 
     let done = tokio::sync::Notify::new();
-    let (a, b, ()) = tokio::join!(
+    let (a, (b, rx_time), ()) = tokio::join!(
         async {
             let x = client.read_datagram().await.unwrap();
             done.notify_waiters();
             x
         },
         async {
-            let x = client.read_datagram().await.unwrap();
+            let x = client.read_datagram_with_meta().await.unwrap();
             done.notify_waiters();
             x
         },
@@ -819,6 +819,27 @@ async fn two_datagram_readers() {
     );
     assert!(*a == *b"one" || *b == *b"one");
     assert!(*a == *b"two" || *b == *b"two");
+    assert_eq!(
+        rx_time.is_some(),
+        receive_timestamps_supported(),
+        "unexpected kernel receive timestamp availability"
+    );
+}
+
+fn receive_timestamps_supported() -> bool {
+    cfg!(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))
 }
 
 #[tokio::test]

@@ -95,6 +95,16 @@ impl UdpSocketState {
             cmsg_platform_space +=
                 unsafe { libc::CMSG_SPACE(mem::size_of::<libc::in6_pktinfo>() as _) as usize };
         }
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        {
+            cmsg_platform_space +=
+                unsafe { libc::CMSG_SPACE(mem::size_of::<libc::timespec>() as _) as usize };
+        }
+        #[cfg(any(bsd, apple, solarish))]
+        {
+            cmsg_platform_space +=
+                unsafe { libc::CMSG_SPACE(mem::size_of::<libc::timeval>() as _) as usize };
+        }
 
         assert!(
             CMSG_LEN
@@ -120,6 +130,18 @@ impl UdpSocketState {
             {
                 crate::log::debug!("Ignoring error setting IP_RECVTOS on socket: {_err:?}");
             }
+        }
+
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if let Err(_err) =
+            set_socket_option(&*io, libc::SOL_SOCKET, libc::SO_TIMESTAMPNS, OPTION_ON)
+        {
+            crate::log::debug!("Ignoring error setting SO_TIMESTAMPNS on socket: {_err:?}");
+        }
+        #[cfg(any(bsd, apple, solarish))]
+        if let Err(_err) = set_socket_option(&*io, libc::SOL_SOCKET, libc::SO_TIMESTAMP, OPTION_ON)
+        {
+            crate::log::debug!("Ignoring error setting SO_TIMESTAMP on socket: {_err:?}");
         }
 
         let mut may_fragment = false;
@@ -566,7 +588,8 @@ fn recv(io: SockRef<'_>, bufs: &mut [IoSliceMut<'_>], meta: &mut [RecvMeta]) -> 
     Ok(1)
 }
 
-const CMSG_LEN: usize = 88;
+// Room for ECN, destination address, GRO stride, and a receive timestamp.
+const CMSG_LEN: usize = 176;
 
 fn prepare_msg(
     transmit: &Transmit<'_>,
@@ -704,6 +727,8 @@ fn decode_recv(
     let name = unsafe { name.assume_init() };
     let mut ecn_bits = 0;
     let mut dst_ip = None;
+    #[allow(unused_mut)]
+    let mut rx_time = None;
     #[allow(unused_mut)] // only mutable on Linux
     let mut stride = len;
 
@@ -750,6 +775,20 @@ fn decode_recv(
             (libc::SOL_UDP, gro::UDP_GRO) => unsafe {
                 stride = cmsg::decode::<libc::c_int, libc::cmsghdr>(cmsg) as usize;
             },
+            #[cfg(any(target_os = "linux", target_os = "android"))]
+            (libc::SOL_SOCKET, libc::SCM_TIMESTAMPNS) => unsafe {
+                let ts = cmsg::decode_unaligned::<libc::timespec, libc::cmsghdr>(cmsg);
+                #[allow(clippy::unnecessary_cast)]
+                let (secs, nanos) = (ts.tv_sec as i64, ts.tv_nsec as i64);
+                rx_time = system_time_from_unix(secs, nanos);
+            },
+            #[cfg(any(bsd, apple, solarish))]
+            (libc::SOL_SOCKET, libc::SCM_TIMESTAMP) => unsafe {
+                let tv = cmsg::decode_unaligned::<libc::timeval, libc::cmsghdr>(cmsg);
+                #[allow(clippy::unnecessary_cast)]
+                let (secs, micros) = (tv.tv_sec as i64, tv.tv_usec as i64);
+                rx_time = system_time_from_unix(secs, micros * 1_000);
+            },
             _ => {}
         }
     }
@@ -784,7 +823,18 @@ fn decode_recv(
         addr,
         ecn: EcnCodepoint::from_bits(ecn_bits),
         dst_ip,
+        rx_time,
     }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", bsd, apple, solarish))]
+fn system_time_from_unix(secs: i64, nanos: i64) -> Option<std::time::SystemTime> {
+    use std::time::{Duration, SystemTime};
+
+    let secs = u64::try_from(secs).ok()?;
+    let nanos = u64::try_from(nanos).ok()?;
+    let duration = Duration::from_secs(secs).checked_add(Duration::from_nanos(nanos))?;
+    SystemTime::UNIX_EPOCH.checked_add(duration)
 }
 
 #[cfg(not(apple_slow))]

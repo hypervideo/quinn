@@ -359,6 +359,12 @@ fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit) {
         } else {
             assert_eq!(meta.ecn, transmit.ecn);
         }
+
+        assert_eq!(
+            meta.rx_time.is_some(),
+            receive_timestamps_supported(),
+            "unexpected kernel receive timestamp availability"
+        );
     }
     assert_eq!(datagrams, expected_datagrams);
 }
@@ -368,4 +374,20 @@ fn ip_to_v6_mapped(x: IpAddr) -> IpAddr {
         IpAddr::V4(x) => IpAddr::V6(x.to_ipv6_mapped()),
         IpAddr::V6(_) => x,
     }
+}
+
+fn receive_timestamps_supported() -> bool {
+    cfg!(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "openbsd",
+        target_os = "netbsd",
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "visionos",
+        target_os = "solaris",
+        target_os = "illumos"
+    ))
 }

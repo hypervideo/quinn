@@ -87,6 +87,16 @@ pub(crate) unsafe fn decode<T: Copy, C: CMsgHdr>(cmsg: &impl CMsgHdr) -> T {
     ptr::read(cmsg.cmsg_data() as *const T)
 }
 
+/// Decode a control message whose payload may not be aligned for `T`.
+///
+/// # Safety
+///
+/// `cmsg` must refer to a native cmsg containing a payload of type `T`.
+pub(crate) unsafe fn decode_unaligned<T: Copy, C: CMsgHdr>(cmsg: &impl CMsgHdr) -> T {
+    debug_assert_eq!(cmsg.len(), C::cmsg_len(mem::size_of::<T>()));
+    ptr::read_unaligned(cmsg.cmsg_data() as *const T)
+}
+
 pub(crate) struct Iter<'a, M: MsgHdr> {
     hdr: &'a M,
     cmsg: Option<&'a M::ControlMessage>,
