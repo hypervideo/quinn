@@ -234,7 +234,12 @@ pub struct Connection {
     local_cid_state: CidState,
     /// State of the unreliable datagram extension
     datagrams: DatagramState,
-    /// Kernel receive timestamp for the UDP datagram being processed
+    /// Kernel receive timestamp for the current UDP datagram.
+    ///
+    /// The connection stashes this value so the DATAGRAM frame handler can
+    /// attach it to each received DATAGRAM frame. The value is valid only while
+    /// packet processing remains synchronous. The event handler must not defer
+    /// packet decryption past the `DatagramConnectionEvent` that set it.
     incoming_datagram_rx_time: Option<std::time::SystemTime>,
     /// Connection level statistics
     stats: ConnectionStats,
@@ -1103,6 +1108,8 @@ impl Connection {
                 first_decode,
                 remaining,
             }) => {
+                // All frames in this UDP datagram share the same arrival time. The DATAGRAM
+                // frame handler reads this value synchronously below.
                 self.incoming_datagram_rx_time = rx_time;
                 // If this packet could initiate a migration and we're a client or a server that
                 // forbids migration, drop the datagram. This could be relaxed to heuristically
