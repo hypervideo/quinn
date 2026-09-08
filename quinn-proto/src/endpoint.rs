@@ -152,6 +152,20 @@ impl Endpoint {
         data: BytesMut,
         buf: &mut Vec<u8>,
     ) -> Option<DatagramEvent> {
+        self.handle_with_rx_time(now, remote, local_ip, ecn, None, data, buf)
+    }
+
+    /// Process an incoming UDP datagram with its kernel receive timestamp
+    pub fn handle_with_rx_time(
+        &mut self,
+        now: Instant,
+        remote: SocketAddr,
+        local_ip: Option<IpAddr>,
+        ecn: Option<EcnCodepoint>,
+        rx_time: Option<std::time::SystemTime>,
+        data: BytesMut,
+        buf: &mut Vec<u8>,
+    ) -> Option<DatagramEvent> {
         // Partially decode packet or short-circuit if unable
         let datagram_len = data.len();
         let event = match PartialDecode::new(
@@ -164,6 +178,7 @@ impl Endpoint {
                 now,
                 remote,
                 ecn,
+                rx_time,
                 first_decode,
                 remaining,
             },
