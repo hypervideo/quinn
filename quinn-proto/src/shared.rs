@@ -22,6 +22,7 @@ pub(crate) struct DatagramConnectionEvent {
     pub(crate) now: Instant,
     pub(crate) remote: SocketAddr,
     pub(crate) ecn: Option<EcnCodepoint>,
+    pub(crate) rx_time: Option<std::time::SystemTime>,
     pub(crate) first_decode: PartialDecode,
     pub(crate) remaining: Option<BytesMut>,
 }

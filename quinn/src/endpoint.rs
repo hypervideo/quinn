@@ -803,11 +803,14 @@ impl RecvState {
                         while !data.is_empty() {
                             let buf = data.split_to(meta.stride.min(data.len()));
                             let mut response_buffer = Vec::new();
-                            match endpoint.handle(
+                            match endpoint.handle_with_rx_time(
                                 now,
                                 meta.addr,
                                 meta.dst_ip,
                                 meta.ecn.map(proto_ecn),
+                                meta.timestamp.and_then(|timestamp| {
+                                    std::time::UNIX_EPOCH.checked_add(timestamp)
+                                }),
                                 buf,
                                 &mut response_buffer,
                             ) {

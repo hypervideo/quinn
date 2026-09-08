@@ -372,6 +372,13 @@ impl Connection {
     /// Receive an application datagram
     pub fn read_datagram(&self) -> ReadDatagram<'_> {
         ReadDatagram {
+            inner: self.read_datagram_with_meta(),
+        }
+    }
+
+    /// Receive an application datagram with its kernel receive timestamp
+    pub fn read_datagram_with_meta(&self) -> ReadDatagramWithMeta<'_> {
+        ReadDatagramWithMeta {
             conn: &self.0,
             notify: self.0.shared.datagram_received.notified(),
         }
@@ -819,20 +826,38 @@ fn poll_accept<'a>(
 pin_project! {
     /// Future produced by [`Connection::read_datagram`]
     pub struct ReadDatagram<'a> {
-        conn: &'a ConnectionRef,
         #[pin]
-        notify: Notified<'a>,
+        inner: ReadDatagramWithMeta<'a>,
     }
 }
 
 impl Future for ReadDatagram<'_> {
     type Output = Result<Bytes, ConnectionError>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
+        self.project()
+            .inner
+            .poll(ctx)
+            .map(|result| result.map(|(data, _)| data))
+    }
+}
+
+pin_project! {
+    /// Future produced by [`Connection::read_datagram_with_meta`]
+    pub struct ReadDatagramWithMeta<'a> {
+        conn: &'a ConnectionRef,
+        #[pin]
+        notify: Notified<'a>,
+    }
+}
+
+impl Future for ReadDatagramWithMeta<'_> {
+    type Output = Result<(Bytes, Option<std::time::SystemTime>), ConnectionError>;
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut this = self.project();
-        let mut state = this.conn.state.lock("ReadDatagram::poll");
+        let mut state = this.conn.state.lock("ReadDatagramWithMeta::poll");
         // Check for buffered datagrams before checking `state.error` so that already-received
         // datagrams, which are necessarily finite, can be drained from a closed connection.
-        if let Some(x) = state.inner.datagrams().recv() {
+        if let Some(x) = state.inner.datagrams().recv_with_meta() {
             return Poll::Ready(Ok(x));
         } else if let Some(ref e) = state.error {
             return Poll::Ready(Err(e.clone()));
