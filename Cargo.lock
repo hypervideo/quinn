@@ -2078,7 +2078,7 @@ dependencies = [
  "futures-io",
  "pin-project-lite",
  "quinn-proto",
- "quinn-udp",
+ "quinn-udp 0.6.2",
  "rand 0.10.1",
  "rcgen",
  "rustc-hash",
@@ -2134,8 +2134,21 @@ dependencies = [
  "libc",
  "log",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.3",
  "tokio",
+ "tracing",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "quinn-udp"
+version = "0.6.2"
+source = "git+https://github.com/hypervideo/quinn?rev=2965c9d5c02dbc65637873a932807a1ca8eada7f#2965c9d5c02dbc65637873a932807a1ca8eada7f"
+dependencies = [
+ "cfg_aliases",
+ "libc",
+ "log",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.52.0",
 ]

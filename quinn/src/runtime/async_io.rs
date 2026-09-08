@@ -111,6 +111,10 @@ impl AsyncUdpSocket for UdpSocket {
         }))
     }
 
+    #[expect(
+        deprecated,
+        reason = "Quinn 0.11 relies on quinn-udp's legacy non-fatal send policy"
+    )]
     fn try_send(&self, transmit: &udp::Transmit) -> io::Result<()> {
         self.inner.send((&self.io).into(), transmit)
     }

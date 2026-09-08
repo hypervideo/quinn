@@ -65,7 +65,7 @@ smol = { workspace = true, optional = true }
 thiserror = { workspace = true }
 tracing =  { workspace = true }
 tokio = { workspace = true }
-udp = { package = "quinn-udp", path = "../quinn-udp", version = "0.5", default-features = false, features = ["tracing"] }
+udp = { package = "quinn-udp", git = "https://github.com/hypervideo/quinn", rev = "2965c9d5c02dbc65637873a932807a1ca8eada7f", version = "0.6.2", default-features = false, features = ["tracing"] }
 
 [target.'cfg(not(all(target_family = "wasm", target_os = "unknown")))'.dependencies]
 socket2 = { workspace = true }
