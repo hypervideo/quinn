@@ -154,4 +154,5 @@ pub(crate) trait CMsgHdr {
 }
 
 #[cfg(unix)]
-pub(crate) const LEN: usize = 96;
+// Room for ECN, destination address, GRO stride, and a receive timestamp.
+pub(crate) const LEN: usize = 176;

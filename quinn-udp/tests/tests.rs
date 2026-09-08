@@ -9,7 +9,7 @@ use std::io::{self, IoSlice};
 use std::net::{SocketAddr, SocketAddrV6};
 #[cfg(apple)]
 use std::os::fd::AsRawFd;
-#[cfg(any(target_os = "linux", target_os = "android"))]
+#[cfg(any(target_os = "linux", target_os = "android", bsd, apple, solarish))]
 use std::time::Duration;
 use std::{
     io::IoSliceMut,
@@ -425,13 +425,13 @@ fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit<'_>) {
             assert_eq!(meta.ecn, transmit.ecn);
         }
 
-        // On Linux and Android, we expect the kernel to provide a receive timestamp
-        // since we explicitly enabled `SO_TIMESTAMPNS`.
-        #[cfg(any(target_os = "linux", target_os = "android"))]
+        // On supported platforms, we expect the kernel to provide a receive timestamp
+        // since we explicitly enabled `SO_TIMESTAMPNS` or `SO_TIMESTAMP`.
+        #[cfg(any(target_os = "linux", target_os = "android", bsd, apple, solarish))]
         {
             assert!(
                 meta.timestamp.is_some(),
-                "Kernel timestamp should be present on Linux/Android"
+                "Kernel timestamp should be present on supported platforms"
             );
             assert!(
                 meta.timestamp.unwrap() > Duration::ZERO,
@@ -440,7 +440,7 @@ fn test_send_recv(send: &Socket, recv: &Socket, transmit: Transmit<'_>) {
         }
 
         // On other platforms, the timestamp should remain `None`.
-        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        #[cfg(not(any(target_os = "linux", target_os = "android", bsd, apple, solarish)))]
         {
             assert!(meta.timestamp.is_none());
         }

@@ -134,7 +134,7 @@ pub struct RecvMeta {
     pub interface_index: Option<u32>,
     /// Kernel receive timestamp as Unix epoch
     ///
-    /// Populated on platforms: Linux, Android.
+    /// Populated on platforms: Linux, Android, Apple, BSD, and Solaris-like platforms.
     pub timestamp: Option<Duration>,
 }
 

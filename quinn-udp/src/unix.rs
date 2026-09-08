@@ -68,6 +68,11 @@ impl UdpSocketState {
             cmsg_platform_space +=
                 unsafe { libc::CMSG_SPACE(size_of::<libc::in6_pktinfo>() as _) as usize };
         }
+        #[cfg(any(bsd, apple, solarish))]
+        {
+            cmsg_platform_space +=
+                unsafe { libc::CMSG_SPACE(size_of::<libc::timeval>() as _) as usize };
+        }
 
         assert!(
             cmsg::LEN
@@ -159,6 +164,11 @@ impl UdpSocketState {
                     OPTION_ON,
                 )?;
             }
+        }
+        #[cfg(any(bsd, apple, solarish))]
+        if let Err(_err) = set_socket_option(&*io, libc::SOL_SOCKET, libc::SO_TIMESTAMP, OPTION_ON)
+        {
+            crate::log::debug!("Ignoring error setting SO_TIMESTAMP on socket: {_err:?}");
         }
         #[cfg(any(bsd, apple, solarish))]
         // IP_RECVDSTADDR == IP_SENDSRCADDR on FreeBSD
@@ -915,6 +925,19 @@ impl ControlMetadata {
                 let secs = u64::try_from(ts.tv_sec).unwrap_or(0);
                 let nsecs = u32::try_from(ts.tv_nsec).unwrap_or(0);
                 self.timestamp = Some(Duration::new(secs, nsecs));
+            }
+            #[cfg(any(bsd, apple, solarish))]
+            (libc::SOL_SOCKET, libc::SCM_TIMESTAMP) => {
+                let timestamp = unsafe { cmsg::decode::<libc::timeval, libc::cmsghdr>(cmsg) };
+                let Ok(seconds) = u64::try_from(timestamp.tv_sec) else {
+                    return;
+                };
+                let Ok(microseconds) = u32::try_from(timestamp.tv_usec) else {
+                    return;
+                };
+                if microseconds < 1_000_000 {
+                    self.timestamp = Some(Duration::new(seconds, microseconds * 1_000));
+                }
             }
             _ => {}
         }
