@@ -548,6 +548,25 @@ mod test {
     }
 
     #[test]
+    fn unordered_empty_frames_preserve_dedup() {
+        let mut x = Assembler::new();
+        x.ensure_ordering(false).unwrap();
+        x.insert(3, Bytes::new(), 0);
+        x.insert(6, Bytes::from_static(b"ghij"), 4);
+        x.insert(5, Bytes::new(), 0);
+        x.insert(2, Bytes::from_static(b"cdefg"), 5);
+        assert_eq!(
+            next_unordered(&mut x),
+            Chunk::new(2, Bytes::from_static(b"cdef"))
+        );
+        assert_eq!(
+            next_unordered(&mut x),
+            Chunk::new(6, Bytes::from_static(b"ghij"))
+        );
+        assert_eq!(x.read(usize::MAX, false), None);
+    }
+
+    #[test]
     fn unordered_dedup() {
         let mut x = Assembler::new();
         x.ensure_ordering(false).unwrap();
