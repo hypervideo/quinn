@@ -4070,6 +4070,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn loss_detection_handles_instant_underflow() {
+        let mut pair = crate::tests::util::Pair::default();
+        let (_, server_ch) = pair.connect();
+        let conn = pair.server_conn_mut(server_ch);
+        let now = Instant::now();
+        let now = now
+            .checked_sub(Duration::from_secs(i64::MAX as u64))
+            .unwrap_or(now);
+        let mut config = TransportConfig::default();
+        config.initial_rtt(Duration::from_secs(u32::MAX.into()));
+        conn.path.rtt = PathData::new(conn.path.remote, false, None, 0, now, &config).rtt;
+        conn.spaces[SpaceId::Data].largest_acked_packet = Some(0);
+        conn.detect_lost_packets(now, SpaceId::Data, false);
+        assert!(conn.spaces[SpaceId::Data].loss_time.is_none());
+    }
+
+    #[test]
     fn already_retired_connection_id_flood_is_bounded() {
         let mut pair = crate::tests::util::Pair::default();
         let (_, server_ch) = pair.connect();

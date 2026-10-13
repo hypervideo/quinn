@@ -105,10 +105,12 @@ impl QlogSink {
                     ..Default::default()
                 }),
                 frames: None,
-                trigger: Some(match now.saturating_duration_since(info.time_sent) >= loss_delay {
-                    true => PacketLostTrigger::TimeThreshold,
-                    false => PacketLostTrigger::ReorderingThreshold,
-                }),
+                trigger: Some(
+                    match now.saturating_duration_since(info.time_sent) >= loss_delay {
+                        true => PacketLostTrigger::TimeThreshold,
+                        false => PacketLostTrigger::ReorderingThreshold,
+                    },
+                ),
             };
 
             stream.emit_event(orig_rem_cid, EventData::PacketLost(event), now);
