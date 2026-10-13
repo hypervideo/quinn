@@ -32,7 +32,7 @@ use crate::{
     frame::FrameStruct,
     transport_parameters::TransportParameters,
 };
-mod util;
+pub(crate) mod util;
 use util::*;
 
 mod token;
@@ -1964,6 +1964,35 @@ fn datagram_recv_buffer_overflow() {
     pair.drive();
     assert_eq!(pair.server_datagrams(server_ch).recv().unwrap(), DATA1);
     assert_matches!(pair.server_datagrams(server_ch).recv(), None);
+}
+
+#[test]
+fn empty_datagram_send_buffer_is_bounded() {
+    let _guard = subscribe();
+    let window = 3 * mem::size_of::<Datagram>();
+    let mut config = client_config();
+    let mut transport = TransportConfig::default();
+    transport.datagram_send_buffer_size(window);
+    config.transport_config(transport.into());
+    let mut pair = Pair::default();
+    let (client_ch, server_ch) = pair.connect_with(config);
+    for _ in 0..3 {
+        pair.client_datagrams(client_ch)
+            .send(Bytes::new(), false)
+            .unwrap();
+    }
+    assert_matches!(
+        pair.client_datagrams(client_ch).send(Bytes::new(), false),
+        Err(SendDatagramError::Blocked(_))
+    );
+    pair.drive();
+    for _ in 0..3 {
+        assert_eq!(pair.server_datagrams(server_ch).recv(), Some(Bytes::new()));
+    }
+    assert_eq!(pair.server_datagrams(server_ch).recv(), None);
+    pair.client_datagrams(client_ch)
+        .send(Bytes::new(), false)
+        .unwrap();
 }
 
 #[test]

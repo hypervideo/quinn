@@ -128,7 +128,11 @@ impl DatagramState {
             Some(x) => *x,
         };
 
-        let size_with_overhead = datagram.data.len() + size_of::<Datagram>();
+        let datagram = ReceivedDatagram {
+            data: datagram.data,
+            rx_time,
+        };
+        let size_with_overhead = datagram.data.len() + size_of::<ReceivedDatagram>();
 
         if size_with_overhead > window {
             return Err(TransportError::PROTOCOL_VIOLATION("oversized datagram"));
@@ -140,10 +144,7 @@ impl DatagramState {
             self.recv();
         }
 
-        self.incoming.push_back(ReceivedDatagram {
-            data: datagram.data,
-            rx_time,
-        });
+        self.incoming.push_back(datagram);
         Ok(was_empty)
     }
 
@@ -265,6 +266,36 @@ impl DatagramBuffer {
 
     pub(super) fn is_empty(&self) -> bool {
         self.queue.is_empty()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn empty_datagrams_are_bounded_with_timestamps() {
+        let mut state = DatagramState::default();
+        let window = 3 * size_of::<ReceivedDatagram>();
+        for i in 0..100 {
+            let timestamp = Some(SystemTime::UNIX_EPOCH + Duration::from_millis(i));
+            state
+                .received(Datagram { data: Bytes::new() }, timestamp, &Some(window))
+                .unwrap();
+            assert!(state.incoming.memory_used() <= window);
+        }
+        assert_eq!(state.incoming.queue.len(), 3);
+        for i in 97..100 {
+            assert_eq!(
+                state.recv_with_meta(),
+                Some((
+                    Bytes::new(),
+                    Some(SystemTime::UNIX_EPOCH + Duration::from_millis(i))
+                ))
+            );
+        }
+        assert!(state.incoming.is_empty());
     }
 }
 

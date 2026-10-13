@@ -723,6 +723,25 @@ mod test {
     use super::*;
 
     #[test]
+    fn truncated_extension_varints_return_malformed() {
+        for id in [
+            TransportParameterId::MaxDatagramFrameSize,
+            TransportParameterId::MinAckDelayDraft07,
+        ] {
+            for payload in [&[][..], &[0x40][..]] {
+                let mut buf = Vec::new();
+                buf.write_var(id as u64);
+                buf.write_var(payload.len() as u64);
+                buf.extend_from_slice(payload);
+                assert_eq!(
+                    TransportParameters::read(Side::Client, &mut buf.as_slice()),
+                    Err(Error::Malformed)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn coding() {
         let mut buf = Vec::new();
         let params = TransportParameters {

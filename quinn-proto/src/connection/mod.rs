@@ -4069,6 +4069,53 @@ mod tests {
     use super::*;
 
     #[test]
+    fn already_retired_connection_id_flood_is_bounded() {
+        let mut pair = crate::tests::util::Pair::default();
+        let (_, server_ch) = pair.connect();
+        let conn = pair.server_conn_mut(server_ch);
+        let now = Instant::now();
+        let remote = conn.path.remote;
+        let mut process = |sequence, retire_prior_to| {
+            let mut payload = Vec::new();
+            frame::NewConnectionId {
+                sequence,
+                retire_prior_to,
+                id: ConnectionId::new(&[0x42; 8]),
+                reset_token: [0x42; 16].into(),
+            }
+            .encode(&mut payload);
+            conn.process_payload(
+                now,
+                remote,
+                0,
+                Packet {
+                    header: Header::Short {
+                        spin: false,
+                        key_phase: false,
+                        dst_cid: ConnectionId::new(&[0x42; 8]),
+                        number: crate::packet::PacketNumber::U8(0),
+                    },
+                    header_data: Bytes::new(),
+                    payload: payload.as_slice().into(),
+                },
+            )
+        };
+        process(1, 1).unwrap();
+        let mut result = Ok(());
+        for _ in 0..1000 {
+            result = process(0, 0);
+            if result.is_err() {
+                break;
+            }
+        }
+        assert_eq!(
+            result.unwrap_err().code,
+            TransportErrorCode::CONNECTION_ID_LIMIT_ERROR
+        );
+        assert!(conn.spaces[SpaceId::Data].pending.retire_cids.len() < 1000);
+    }
+
+    #[test]
     fn negotiate_max_idle_timeout_commutative() {
         let test_params = [
             (None, None, None),
